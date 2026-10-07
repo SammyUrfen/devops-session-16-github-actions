@@ -1,0 +1,40 @@
+name: CD
+
+# Runs only after the CI workflow finishes on main; the job below checks that CI passed.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/sammyurfen/devops-session-16-github-actions
+
+jobs:
+  push-image:
+    name: Push image to GHCR
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the commit CI tested
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build image
+        run: |
+          docker build \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            -t $IMAGE:${{ github.event.workflow_run.head_sha }} -t $IMAGE:latest .
+
+      - name: Push image
+        run: |
+          docker push $IMAGE:${{ github.event.workflow_run.head_sha }}
+          docker push $IMAGE:latest

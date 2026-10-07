@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run unit tests
+        run: pytest -v --junitxml=test-results/results.xml
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: test-results/
+          retention-days: 7
+
+      - name: Use a repository secret
+        env:
+          DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
+        run: |
+          echo "Secret value printed directly: $DEMO_SECRET"
+          echo "Secret length: ${#DEMO_SECRET}"
+
+  docker-build:
+    name: Build Docker image
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t calc-app:${{ github.sha }} .
+
+      - name: Smoke test the container
+        run: |
+          docker run -d --name calc -p 5000:5000 calc-app:${{ github.sha }}
+          sleep 3
+          curl -fsS http://localhost:5000/health
+          curl -fsS "http://localhost:5000/add?a=2&b=3"
+          docker rm -f calc
